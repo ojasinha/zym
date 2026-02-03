@@ -1,0 +1,8 @@
+# Build artifacts
+build/
+
+# IDE/Editor files
+.vscode/
+
+# .conf files
+*.conf
