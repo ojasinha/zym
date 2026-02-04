@@ -1,6 +1,6 @@
 # Zym
 
-Experimenting with code search using CUDA for acceleration. Currently supports exact and fuzzy pattern matching.
+Experimenting with code search using CUDA for acceleration. Supports exact and fuzzy pattern matching.
 
 ## Building
 
@@ -43,9 +43,16 @@ make -j$(nproc)
 
 Create a config file (`benchmark.conf`):
 ```
-# name,path,patterns,exact|fuzzy,max_distance
-small,/path/to/code,TODO:FIXME:int,exact,0
+# name,path,patterns,mode,max_distance
+exact_test,/path/to/code,TODO:FIXME:int,exact,0
 fuzzy_test,/path/to/code,TODO:main,fuzzy,1
+```
+
+For external tools (ripgrep & grep):
+```
+# name,path,patterns,mode,max_distance
+ripgrep_test,/path/to/code,TODO:FIXME,ripgrep,0
+grep_test,/path/to/code,main:struct,grep,0
 ```
 
 Run benchmarks:

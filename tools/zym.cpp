@@ -19,7 +19,6 @@ void print_help() {
     std::cout << "  zym /path/to/code TODO\n";
     std::cout << "  zym --gpu /path/to/code main\n";
     std::cout << "  zym --fuzzy 2 /path/to/code FIXME\n";
-    std::cout << "  zym --gpu --fuzzy 1 --verbose /path/to/code TODO\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -94,10 +93,12 @@ int main(int argc, char* argv[]) {
     
     if (verbose) {
         std::cout << "Found " << files.size() << " files\n";
-        std::cout << "Mode: " << (use_gpu ? "GPU" : "CPU") 
-                  << ", " << (fuzzy ? "fuzzy" : "exact") << "\n";
+        std::cout << "Mode: " << (use_gpu ? "GPU" : "CPU");
         if (fuzzy) {
+            std::cout << ", fuzzy\n";
             std::cout << "Max distance: " << max_distance << "\n";
+        } else {
+            std::cout << ", exact\n";
         }
     }
     

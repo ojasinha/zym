@@ -5,12 +5,15 @@
 #include <chrono>
 #include <cmath>
 #include <sstream>
+#include <cstdlib>
+#include <array>
+#include <memory>
 
 struct BenchmarkConfig {
     std::string name;
     std::string path;
     std::vector<std::string> patterns;
-    bool exact;
+    std::string mode; // "exact", "fuzzy", "ripgrep", "grep"
     int max_distance;
 };
 
@@ -37,7 +40,7 @@ std::vector<BenchmarkConfig> read_config(const std::string& filename) {
     }
     
     // Simple line-based config format:
-    // name,path,pattern1:pattern2:pattern3,exact|fuzzy,max_distance
+    // name,path,pattern1:pattern2:pattern3,exact|fuzzy|regex,max_distance
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
@@ -45,12 +48,12 @@ std::vector<BenchmarkConfig> read_config(const std::string& filename) {
         std::stringstream ss(line);
         BenchmarkConfig config;
         
-        std::string patterns_str, mode_str, dist_str;
+        std::string patterns_str, dist_str;
         
         std::getline(ss, config.name, ',');
         std::getline(ss, config.path, ',');
         std::getline(ss, patterns_str, ',');
-        std::getline(ss, mode_str, ',');
+        std::getline(ss, config.mode, ',');
         std::getline(ss, dist_str, ',');
         
         // Parse patterns
@@ -60,7 +63,6 @@ std::vector<BenchmarkConfig> read_config(const std::string& filename) {
             config.patterns.push_back(pattern);
         }
         
-        config.exact = (mode_str == "exact");
         config.max_distance = std::atoi(dist_str.c_str());
         
         configs.push_back(config);
@@ -68,6 +70,26 @@ std::vector<BenchmarkConfig> read_config(const std::string& filename) {
     
     file.close();
     return configs;
+}
+
+// Run external command and count matches
+int run_external_command(const std::string& command) {
+    std::array<char, 128> buffer;
+    std::string result;
+    int match_count = 0;
+    
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        return 0;
+    }
+    
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        result += buffer.data();
+        match_count++;
+    }
+    
+    pclose(pipe);
+    return match_count;
 }
 
 template<typename Func>
@@ -169,10 +191,11 @@ int main(int argc, char* argv[]) {
             std::cout << "  --include-fuzzy-cpu   Include fuzzy CPU benchmarks\n";
             std::cout << "  --help                Show this help\n\n";
             std::cout << "Config format (CSV):\n";
-            std::cout << "  name,path,pattern1:pattern2,exact|fuzzy,max_distance\n\n";
+            std::cout << "  name,path,pattern1:pattern2,exact|fuzzy|ripgrep|grep,max_distance\n\n";
             std::cout << "Example:\n";
             std::cout << "  small,/path/to/code,TODO:FIXME,exact,0\n";
             std::cout << "  large,/other/path,main:int,fuzzy,2\n";
+            std::cout << "  external,/path/to/src,struct:return,ripgrep,0\n";
             return 0;
         }
     }
@@ -193,11 +216,41 @@ int main(int argc, char* argv[]) {
         for (const auto& pattern : config.patterns) {
             std::cout << "  Pattern: \"" << pattern << "\"\n";
             
+            // Handle external tools (ripgrep, grep)
+            if (config.mode == "ripgrep" || config.mode == "grep") {
+                std::string tool = config.mode;
+                std::string cmd;
+                
+                if (config.mode == "ripgrep") {
+                    // ripgrep with file count suppression (just get matches)
+                    cmd = "rg --no-heading --no-filename -c '" + pattern + "' " + config.path + " 2>/dev/null";
+                } else { // grep
+                    // GNU grep recursive
+                    cmd = "grep -r --include='*.cpp' --include='*.cu' --include='*.h' --include='*.c' -c '" + pattern + "' " + config.path + " 2>/dev/null";
+                }
+                
+                std::cout << "    " << tool << "... " << std::flush;
+                auto result = run_benchmark(
+                    config.name, pattern, tool,
+                    files,
+                    [&]() {
+                        int count = run_external_command(cmd);
+                        // Return dummy SearchResult vector
+                        std::vector<SearchResult> dummy(count);
+                        return dummy;
+                    },
+                    num_runs
+                );
+                all_results.push_back(result);
+                std::cout << result.avg_ms << " ms\n";
+                continue;
+            }
+            
             BenchmarkResult cpu_result;
             bool cpu_ran = true;
             
             // CPU
-            if (!config.exact && !include_fuzzy_cpu) {
+            if (config.mode == "fuzzy" && !include_fuzzy_cpu) {
                 std::cout << "    CPU (skipped - fuzzy CPU disabled by default)\n";
                 cpu_ran = false;
             } else {
@@ -206,9 +259,9 @@ int main(int argc, char* argv[]) {
                     config.name, pattern, "cpu",
                     files,
                     [&]() {
-                        if (config.exact) {
+                        if (config.mode == "exact") {
                             return exact_search_cpu(files, pattern, 0, false);
-                        } else {
+                        } else { // fuzzy
                             return fuzzy_search_cpu(files, pattern, config.max_distance, 0, false);
                         }
                     },
@@ -224,9 +277,9 @@ int main(int argc, char* argv[]) {
                 config.name, pattern, "gpu",
                 files,
                 [&]() {
-                    if (config.exact) {
+                    if (config.mode == "exact") {
                         return exact_search_gpu(files, pattern, false);
-                    } else {
+                    } else { // fuzzy
                         return fuzzy_search_gpu(files, pattern, config.max_distance, false);
                     }
                 },
